@@ -1,15 +1,15 @@
-#include "../include/worker.h"
-#include "../include/server.h"
-#include "../include/common_cb.h"
-
 #include <cstring>
 #include <cstdlib>
 #include <sstream>
 #include <string>
 
+#include "../include/worker.h"
+#include "../include/server.h"
+#include "../include/common_cb.h"
+#include "../include/match.h"
+
 #define DEV_REGIREQ "MSG_AGENT_REGISTER_REQ"
 #define DEV_REGIRSP "MSG_AGENT_REGISTER_RSP"
-
 #define CLI_CONNQEQ "MSG_CLI_NEED_CON_REQ"
 #define CLI_CONNRSP "MSG_CLI_NEED_CON_RSP"
 #define DEV_CONNREQ "MSG_DEV_START_CON"
@@ -164,7 +164,7 @@ int handle_dev_register(Buffev *buffev,std::string uuid,std::string are,std::str
 			insert_node_to_map(uuid,pPeer);
 		
 	}
-	update_timer_event(buffev->timer,240);
+	update_timer_event(buffev->timer,HEART_BEAT_TIMEOUT);
 	
 	/*更新数据库*/
 	struct timeval nowtv;
@@ -172,14 +172,16 @@ int handle_dev_register(Buffev *buffev,std::string uuid,std::string are,std::str
 	if(buffev->owner->redis_conn_flag == 1 &&(nowtv.tv_sec - pPeer->FlushRedis > 150))
 	{
 		redisAsyncCommand(buffev->owner->r_status, redis_op_status,buffev->owner, "HMSET %s ServerIP %s ServerPort %d DevicePort %d", \
-                                        uuid.c_str(),"120.132.75.75",6610,pPeer->DevPort);
-        redisAsyncCommand(buffev->owner->r_status,redis_op_status,buffev->owner,"EXPIRE %s %d",uuid.c_str(),300);
+                                        uuid.c_str(),REDIS_CENTER_IP,REDIS_STATUS_PORT,pPeer->DevPort);
+        redisAsyncCommand(buffev->owner->r_status,redis_op_status,buffev->owner,"EXPIRE %s %d",uuid.c_str(),REDIS_EXPIRE_TIME);
 		pPeer->FlushRedis = nowtv.tv_sec;
 	}
 
 	/*响应设备*/
+	std::stringstream timeout;
+	timeout<<HEART_BEAT_TIMEOUT;
 	Json::Value responseValue = Json::Value::null;
-	responseValue["AgentProtocol"]["Body"]["KeepAliveIntervel"] = "120";
+	responseValue["AgentProtocol"]["Body"]["KeepAliveIntervel"] = timeout.str();
 	responseValue["AgentProtocol"]["Header"]["CSeq"] = "1";
 	responseValue["AgentProtocol"]["Header"]["ErrorNum"] = "200";
 	responseValue["AgentProtocol"]["Header"]["ErrorString"] = "Success OK";
@@ -201,6 +203,8 @@ int handle_dev_register(Buffev *buffev,std::string uuid,std::string are,std::str
 
 	int dataLen = rspData.length();
 	bufferevent_write(buffev->bufev,rspData.c_str(),dataLen);
+	ss.clear();
+	timeout.clear();
 	return 0;
 }
 
@@ -208,20 +212,20 @@ int handle_dev_register(Buffev *buffev,std::string uuid,std::string are,std::str
 int handle_conn_requst(Buffev *buffev,std::string uuid,std::string token,std::string servertype,std::string sesionid,std::string destport)
 {
 	/*更新一下定时器*/
-	update_timer_event(buffev->timer,240);
+	update_timer_event(buffev->timer,HEART_BEAT_TIMEOUT);
 	/*查找uuid*/
 	Node * pPeer = get_node_from_map(uuid);
 	if(NULL == pPeer)
 	{
 		return -1;
 	}
-#if 0
-	int ret = get_matched_server(data_center_ip,(char *)server_type.c_str(),pPeer->oem_id,pPeer->area_name,str_ip,NULL);
+	char match_ip[32] = {0,};
+	int ret = get_matched_server(REDIS_CENTER_IP,(char *)servertype.c_str(),(char *)pPeer->Oemid.c_str(),(char *)pPeer->Area.c_str(),match_ip,NULL);
 	if(ret < 0)
 	{		
-		
-	}
-#endif 
+		return -1;	
+	} 
+	
 	std::string strport = "6611";
 	/*响应客户端*/
 	Json::Value responseValue = Json::Value::null;
@@ -230,7 +234,7 @@ int handle_conn_requst(Buffev *buffev,std::string uuid,std::string token,std::st
 	responseValue["AgentProtocol"]["Header"]["MessageType"] = CLI_CONNRSP;	
 	responseValue["AgentProtocol"]["Header"]["ErrorNum"] = "200";
 	responseValue["AgentProtocol"]["Header"]["ErrorString"] = "Success OK";
-	responseValue["AgentProtocol"]["Body"]["AgentServerIp"] = "123.59.27.192";
+	responseValue["AgentProtocol"]["Body"]["AgentServerIp"] = match_ip;
 	responseValue["AgentProtocol"]["Body"]["AgentServerPort"] = strport.c_str();
 	std::string strbody = getString(responseValue);
 	int bodylen = strbody.length();
@@ -247,14 +251,14 @@ int handle_conn_requst(Buffev *buffev,std::string uuid,std::string token,std::st
 
 	int dataLen = rspData.length();
 	bufferevent_write(buffev->bufev,rspData.c_str(),dataLen);
-
+	ss.clear();
 	
 	/*向设备发送连接指令*/
 	Json::Value reqConn = Json::Value::null;
 	reqConn["AgentProtocol"]["Header"]["Version"] = "1.0";
 	reqConn["AgentProtocol"]["Header"]["CSeq"] = "3";	
 	reqConn["AgentProtocol"]["Header"]["MessageType"] = DEV_CONNREQ;	
-	reqConn["AgentProtocol"]["Body"]["AgentServerIp"] = "123.59.27.192";
+	reqConn["AgentProtocol"]["Body"]["AgentServerIp"] = match_ip;
 	reqConn["AgentProtocol"]["Body"]["AgentServerPort"] = strport;	
 	reqConn["AgentProtocol"]["Body"]["SessionId"] = sesionid.c_str();
 	reqConn["AgentProtocol"]["Body"]["DestPort"] = destport.c_str();
@@ -264,7 +268,7 @@ int handle_conn_requst(Buffev *buffev,std::string uuid,std::string token,std::st
 	
 	std::stringstream sl;
 	sl<<reqbodylen;
-	std::string strreqconnlen = ss.str();
+	std::string strreqconnlen = sl.str();
 	std::string reqConnHead = "POST / HTTP/1.1\r\n";
 	std::string reqConnCseq = "CSeq: 3\r\n";
 	std::string reqConnLen = "Content-Length: ";
@@ -273,5 +277,6 @@ int handle_conn_requst(Buffev *buffev,std::string uuid,std::string token,std::st
 	std::string reqConndata = reqConnHeader + strreqCon;
 	int reqConndatalen = reqConndata.length();
 	bufferevent_write(pPeer->WorBuf->bufev,reqConndata.c_str(),reqConndatalen);	
+	sl.clear();
 	return 0;
 }

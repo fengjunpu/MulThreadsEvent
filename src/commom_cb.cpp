@@ -101,7 +101,7 @@ void redis_conn_cb(const struct redisAsyncContext* c, int status)
 		if(event_initialized(&worker_ev->ev))
 			event_del(&worker_ev->ev);
 		event_assign(&worker_ev->ev,worker_ev->w_base,-1,0,redis_reconn_cb,worker_ev);
-		update_timer_event(&worker_ev->ev,5);
+		update_timer_event(&worker_ev->ev,REDIS_RECONN_INTERNAL);
 	}
 	else
 	{
@@ -109,7 +109,7 @@ void redis_conn_cb(const struct redisAsyncContext* c, int status)
 		if(event_initialized(&worker_ev->ev))
 			event_del(&worker_ev->ev);
 		event_assign(&worker_ev->ev,worker_ev->w_base,-1,0,redis_check_health_cb,worker_ev);
-		update_timer_event(&worker_ev->ev,60);
+		update_timer_event(&worker_ev->ev,REDIS_CHECKHEALTH_INTERNAL);
 	}
 }
 
@@ -122,7 +122,7 @@ void redis_disconn_cb(const struct redisAsyncContext* c, int status)
 	if(event_initialized(&worker_ev->ev))
 		event_del(&worker_ev->ev);
 	event_assign(&worker_ev->ev,worker_ev->w_base,-1,0,redis_reconn_cb,worker_ev);
-	update_timer_event(&worker_ev->ev,5);
+	update_timer_event(&worker_ev->ev,REDIS_RECONN_INTERNAL);
 }
 
 /*ÖØÁ¬redis*/
@@ -131,7 +131,7 @@ void redis_reconn_cb(evutil_socket_t fd, short event, void *ctx)
 	if(NULL == ctx)
 		return;
 	Worker *worker_ev = (Worker *)ctx;
-	worker_ev->r_status  = redisAsyncConnect("120.132.71.215",5127);
+	worker_ev->r_status  = redisAsyncConnect(REDIS_CENTER_IP,REDIS_STATUS_PORT);
 	worker_ev->r_status->data = worker_ev;
 	redisLibeventAttach(worker_ev->r_status,worker_ev->w_base);
 	redisAsyncSetConnectCallback(worker_ev->r_status,redis_conn_cb);
@@ -163,5 +163,5 @@ void redis_op_status(redisAsyncContext *c, void * redis_reply, void * arg)
 		redisAsyncDisconnect(c);
 		return;
 	}
-	update_timer_event(&worker_ev->ev,60);
+	update_timer_event(&worker_ev->ev,REDIS_CHECKHEALTH_INTERNAL);
 }
