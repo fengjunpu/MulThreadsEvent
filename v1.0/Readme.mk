@@ -1,0 +1,1 @@
+预先分配100w个bufferevent
