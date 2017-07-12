@@ -53,7 +53,7 @@ static void update_serverinfo_to_redis(redisContext* connect)
 			
 			ss << peer_map_size;
 			ss >> dssaccess_server_status;
-
+			std::cout<<"@@@@@@@@@status active device number "<<dssaccess_server_status<<"@@@@@@@@@\n";
 			int ret = redis_hset(connect,temp_map.c_str(),
 							dssaccess_server_ip, VALUE_DSSACCESSSERVER_ONLINE);
 			
@@ -97,22 +97,25 @@ static int get_env_param()
 	{
 		strcpy(rediscenter_ip,temp_server_ip);
 	}
+	
 	serverarea_name = getenv("ServerArea");
 	if(NULL == serverarea_name)
 	{
 		serverarea_name = "Asia:China:Beijing";
 	}
+
 	vendor_name = getenv("VendorName");
 	if(NULL == vendor_name)
 	{
 		vendor_name = "General";
 	}
+
 	server_type = getenv("ServerType");
 	if(NULL == server_type)
 	{
 		server_type = "RPS";
 	}
-	//从环境变量里面获取iplist
+
 	const char *tmp_server_iplist = getenv("RedisList");
 	if(tmp_server_iplist != NULL)
 	{

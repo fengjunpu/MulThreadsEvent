@@ -2,10 +2,10 @@ LIBS += ../lib/event_lib/libevent.a
 LIBS += ../lib/event_lib/libevent_pthreads.a
 LIBS += ../lib/json_lib/libjson.a
 LIBS += ../lib/redis_lib/libhiredis.a
-LIBS += ../lib/match_lib/libmatch.so
+LIBS += ./libmatch.so
 
-main:main.o server.o commom_cb.o worker.o subsvr_manage.o common_data.o
-	g++ -o main main.o server.o worker.o commom_cb.o subsvr_manage.o common_data.o $(LIBS) -lpthread -lrt
+agent_access:main.o server.o commom_cb.o worker.o subsvr_manage.o common_data.o
+	g++ -o agent_access main.o server.o worker.o commom_cb.o subsvr_manage.o common_data.o $(LIBS) -lpthread -lrt
 main.o:main.cpp
 	g++ -c main.cpp
 server.o:server.cpp
@@ -19,5 +19,5 @@ subsvr_manage.o:subsvr_manage.cpp
 common_data.o:common_data.cpp
 	g++ -c common_data.cpp
 clean:
-	rm -rf *.o main
+	rm -rf *.o agent_access_server
 

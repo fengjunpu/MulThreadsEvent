@@ -40,7 +40,8 @@ int redis_expire(redisContext* connect,
             reply->type == REDIS_REPLY_STATUS)
         ret = 0;
 
-    freeReplyObject(reply);
+	if(NULL != reply)
+	    freeReplyObject(reply);
 
     return ret;
 }
@@ -59,8 +60,9 @@ int redis_multi(redisContext* connect)
             reply->type == REDIS_REPLY_STATUS &&
             strcasecmp(reply->str, "OK") == 0)
         ret = 0;
-
-    freeReplyObject(reply);
+	
+	if(NULL != reply)
+   		freeReplyObject(reply);
 
     return ret;
 }
@@ -76,8 +78,9 @@ int redis_exec(redisContext* connect)
 
     if (!reply && 0 == reply->elements && reply->type != REDIS_REPLY_ARRAY)
         ret = 0;
-
-    freeReplyObject(reply);
+	
+	if(NULL != reply)
+    	freeReplyObject(reply);
 
     return ret;
 }
@@ -97,7 +100,8 @@ int redis_discard(redisContext* connect)
             strcasecmp(reply->str, "OK") == 0)
         ret = 0;
 
-    freeReplyObject(reply);
+	if(NULL != reply)
+	    freeReplyObject(reply);
 
     return ret;
 }
@@ -119,7 +123,8 @@ int redis_set(redisContext* connect,
             strcasecmp(reply->str, "OK") == 0)
         ret = 0;
 
-    freeReplyObject(reply);
+	if(NULL != reply)
+	    freeReplyObject(reply);
 
     return ret;
 }
@@ -141,7 +146,8 @@ int redis_setex(redisContext* connect,
             strcasecmp(reply->str, "OK") == 0)
         ret = 0;
 
-    freeReplyObject(reply);
+	if(NULL != reply)
+	    freeReplyObject(reply);
 
     return ret;
 }
@@ -159,7 +165,8 @@ int redis_get(redisContext* connect, const char* key, char* ret_str)
             reply->type == REDIS_REPLY_STRING)
         memcpy(ret_str, reply->str, reply->len);
 
-    freeReplyObject(reply);
+	if(NULL != reply)
+	    freeReplyObject(reply);
 
     return 0;
 }
@@ -178,7 +185,8 @@ int redis_hget(redisContext* connect,
             reply->type == REDIS_REPLY_STRING)
         memcpy(ret_str, reply->str, reply->len);
 
-    freeReplyObject(reply);
+	if(NULL != reply)
+	    freeReplyObject(reply);
 
     return 0;
 }
@@ -200,7 +208,8 @@ int redis_hset(redisContext* connect,
             reply->type == REDIS_REPLY_STATUS)
         ret = 0;
 
-    freeReplyObject(reply);
+	if(NULL != reply)
+	    freeReplyObject(reply);
 
     return ret;
 }
@@ -219,8 +228,9 @@ int redis_hdel(redisContext* connect,
     if (reply != NULL &&
             reply->type == REDIS_REPLY_STATUS)
         ret = 0;
-
-    freeReplyObject(reply);
+	
+	if(NULL != reply)
+    	freeReplyObject(reply);
 
     return ret;	
 }        
@@ -244,8 +254,9 @@ std::vector<std::string> redis_hgetall(redisContext* connect,
             retVec.push_back(tmpStr);
         }
     }
-
-    freeReplyObject(reply);
+	
+	if(NULL != reply)
+	    freeReplyObject(reply);
 
     return retVec;
 }
@@ -272,8 +283,9 @@ std::map<std::string,std::string> redis_hgetall_map(redisContext* connect,
             retMap[tmpStrKey] = tmpStrValue;
         }
     }
-
-    freeReplyObject(reply);
+	
+	if(NULL != reply)
+   		freeReplyObject(reply);
 
     return retMap;
 

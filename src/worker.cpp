@@ -22,6 +22,18 @@ static std::string getString(const Json::Value & table)
     return temp;
 }
 
+int error_rps_data(struct bufferevent *bufev,int code)
+{
+	if(NULL == bufev)
+		return -1;
+	char rps[128] = {0};
+	int ret = snprintf(rps,128,"HTTP/1.1 %d %s\r\n",code,status_code_to_str(code));
+	sprintf(rps+ret,"%s","Content-Type: text/plain\r\n\r\n");
+	int len = strlen(rps) + 1;
+	bufferevent_write(bufev,rps,len);
+	return 0;
+}
+
 bool update_timer_event(struct event *ev,int time)
 {
 	if(NULL == ev)
@@ -51,6 +63,7 @@ bool insert_node_to_map(std::string uuid,Node *peer)
 {
 	if(NULL == peer)
 		return false;
+	std::cout<<"insert new peer uuid :"<<uuid<<std::endl;
 	pthread_mutex_lock(&Server::getInstance()->s_lock_node_map);
 	Server::getInstance()->dev_node_container.insert(Node_Map::value_type(uuid, peer));
 	pthread_mutex_unlock(&Server::getInstance()->s_lock_node_map);
@@ -67,7 +80,7 @@ bool del_node_from_map(std::string uuid)
 
 
 /*解析http数据数据*/
-int parse_http_data(char *data,Buffev *buffev)
+int parse_http_data(char *data,Conn *buffev)
 {
 	if(NULL == data)
 		return -1;
@@ -78,7 +91,7 @@ int parse_http_data(char *data,Buffev *buffev)
     Json::Value     requestValue;
 	if(reader.parse(body, requestValue) == false)
    	{
-		return -1;
+		return error_rps_data(buffev->bufev,HTTP_RES_400);
    	}
 	
 	if((requestValue.isObject())&&(requestValue.isMember("AgentProtocol"))&& \
@@ -97,7 +110,7 @@ int parse_http_data(char *data,Buffev *buffev)
 			std::string OemId = Ret ? requestValue["AgentProtocol"]["Body"]["RewriteOemID"].asCString() : "General";
 
 			Ret = requestValue["AgentProtocol"]["Body"].isMember("DevicePort");
-			std::string StrPort = Ret ? requestValue["AgentProtocol"]["Body"]["RewriteOemID"].asCString() : "-1";
+			std::string StrPort = Ret ? requestValue["AgentProtocol"]["Body"]["DevicePort"].asCString() : "-1";
 			
 			return handle_dev_register(buffev,Uuid,Area,OemId,StrPort);
 		}
@@ -118,68 +131,74 @@ int parse_http_data(char *data,Buffev *buffev)
 				std::string ServerType = requestValue["AgentProtocol"]["Body"]["ServiceType"].asString();
 				std::string SessionId = requestValue["AgentProtocol"]["Body"]["SessionId"].asCString();
 				std::string DestPort = requestValue["AgentProtocol"]["Body"]["DestPort"].asCString();
+				std::cout<<"client uuid "<<Uuid<<std::endl;
 				return handle_conn_requst(buffev,Uuid,ClientToken,ServerType,SessionId,DestPort);
 			}while(0);
 		}
 	}
+	return error_rps_data(buffev->bufev,HTTP_RES_400);
 	/*Bad Request ... ...*/
 }
 
 
-/*处理设备注册函数*/
-int handle_dev_register(Buffev *buffev,std::string uuid,std::string are,std::string oenmid,std::string port)
+/*处理设备注册请求*/
+int handle_dev_register(Conn *conn,std::string uuid,std::string are,std::string oenmid,std::string port)
 {
 	Node * pPeer = get_node_from_map(uuid);
-	if((NULL == pPeer) || (pPeer->WorBuf != buffev))
+	if((NULL == pPeer) || (pPeer->pConn != conn))
 	{
 		int flag = 0;
 		if(NULL == pPeer)
 		{
-			pPeer = new Node;
+			pPeer = (Node *)calloc(sizeof(Node),1);
 			assert(pPeer);
 			flag = 1;
-			
 		}
 		else
 		{
-			if(pPeer->WorBuf->timer != NULL)
+			/*加锁*/
+			if(pPeer->pConn != NULL)
 			{
-				event_free(pPeer->WorBuf->timer);
-				pPeer->WorBuf->timer = NULL;
-			}
-			bufferevent_disable(pPeer->WorBuf->bufev,EV_READ | EV_WRITE);
-			evutil_socket_t fd = bufferevent_getfd(pPeer->WorBuf->bufev);
-			evutil_closesocket(fd);
-			pPeer->WorBuf->pPeer = NULL;
-			pPeer->WorBuf->owner->put_buffev(pPeer->WorBuf);
+				if(pPeer->pConn->timer != NULL)
+				{
+					event_free(pPeer->pConn->timer);
+				}
+				if(pPeer->pConn->bufev != NULL)
+				{
+					bufferevent_free(pPeer->pConn->bufev);
+				}
+				free(pPeer->pConn);
+			}	
 		}
+		
 		pPeer->FlushRedis = 0;
-		pPeer->WorBuf = buffev;
+		pPeer->pConn = conn;
 		pPeer->DevPort = atoi(port.c_str());
-		pPeer->Area = are;
-		pPeer->Oemid = oenmid;	
-		pPeer->Uuid = uuid;
-		pPeer->WorBuf->pPeer = pPeer;
+		memcpy(pPeer->Area,are.c_str(),sizeof(pPeer->Area));
+		memcpy(pPeer->Oemid,oenmid.c_str(),sizeof(pPeer->Oemid));
+		memcpy(pPeer->Uuid,uuid.c_str(),sizeof(pPeer->Uuid));
+		pPeer->pConn->pPeer = pPeer;
+		
 		if(1 == flag)
 			insert_node_to_map(uuid,pPeer);
-		
 	}
-	update_timer_event(buffev->timer,HEART_BEAT_TIMEOUT);
+	
+	update_timer_event(conn->timer,HEART_BEAT_TIMEOUT);
 	
 	/*更新数据库*/
 	struct timeval nowtv;
 	evutil_gettimeofday(&nowtv, NULL);
-	if(buffev->owner->redis_conn_flag == 1 &&(nowtv.tv_sec - pPeer->FlushRedis > 150))
+	if(conn->hredis->redis_conn_flag == 1 &&(nowtv.tv_sec - pPeer->FlushRedis > 3*HEATER_BEAT_INTERNAL - 5))
 	{
-		redisAsyncCommand(buffev->owner->r_status, redis_op_status,buffev->owner, "HMSET %s ServerIP %s ServerPort %d DevicePort %d", \
-                                        uuid.c_str(),REDIS_CENTER_IP,REDIS_STATUS_PORT,pPeer->DevPort);
-        redisAsyncCommand(buffev->owner->r_status,redis_op_status,buffev->owner,"EXPIRE %s %d",uuid.c_str(),REDIS_EXPIRE_TIME);
+		redisAsyncCommand(conn->hredis->r_status,redis_op_status,conn->hredis, "HMSET %s ServerIP %s ServerPort %d DevicePort %d", \
+                                        uuid.c_str(),RPS_SERVER_IP,RPS_SERVER_PORT,pPeer->DevPort);
+        redisAsyncCommand(conn->hredis->r_status,redis_op_status,conn->hredis,"EXPIRE %s %d",uuid.c_str(),REDIS_EXPIRE_TIME);
 		pPeer->FlushRedis = nowtv.tv_sec;
 	}
 
 	/*响应设备*/
 	std::stringstream timeout;
-	timeout<<HEART_BEAT_TIMEOUT;
+	timeout<<HEATER_BEAT_INTERNAL;
 	Json::Value responseValue = Json::Value::null;
 	responseValue["AgentProtocol"]["Body"]["KeepAliveIntervel"] = timeout.str();
 	responseValue["AgentProtocol"]["Header"]["CSeq"] = "1";
@@ -202,27 +221,27 @@ int handle_dev_register(Buffev *buffev,std::string uuid,std::string are,std::str
 	std::string rspData = strHeader + strbody;
 
 	int dataLen = rspData.length();
-	bufferevent_write(buffev->bufev,rspData.c_str(),dataLen);
+	bufferevent_write(conn->bufev,rspData.c_str(),dataLen);
 	ss.clear();
 	timeout.clear();
 	return 0;
 }
 
-/*处理设备连接函数*/
-int handle_conn_requst(Buffev *buffev,std::string uuid,std::string token,std::string servertype,std::string sesionid,std::string destport)
+/*处理设备连接请求*/
+int handle_conn_requst(Conn *conn,std::string uuid,std::string token,std::string servertype,std::string sesionid,std::string destport)
 {
-	/*更新一下定时器*/
-	update_timer_event(buffev->timer,HEART_BEAT_TIMEOUT);
+	update_timer_event(conn->timer,HEART_BEAT_TIMEOUT - 100);
 	/*查找uuid*/
 	Node * pPeer = get_node_from_map(uuid);
 	if(NULL == pPeer)
 	{
-		return -1;
+		return error_rps_data(conn->bufev,HTTP_RES_NOTFOUND);
 	}
 	char match_ip[32] = {0,};
-	int ret = get_matched_server(REDIS_CENTER_IP,(char *)servertype.c_str(),(char *)pPeer->Oemid.c_str(),(char *)pPeer->Area.c_str(),match_ip,NULL);
+	int ret = get_matched_server(REDIS_CENTER_IP,(char *)servertype.c_str(),(char *)pPeer->Oemid,(char *)pPeer->Area,match_ip,NULL);
 	if(ret < 0)
 	{		
+		return error_rps_data(conn->bufev,HTTP_RES_SERVERR);
 		return -1;	
 	} 
 	
@@ -250,7 +269,7 @@ int handle_conn_requst(Buffev *buffev,std::string uuid,std::string token,std::st
 	std::string rspData = strHeader + strbody;
 
 	int dataLen = rspData.length();
-	bufferevent_write(buffev->bufev,rspData.c_str(),dataLen);
+	bufferevent_write(conn->bufev,rspData.c_str(),dataLen);
 	ss.clear();
 	
 	/*向设备发送连接指令*/
@@ -276,7 +295,7 @@ int handle_conn_requst(Buffev *buffev,std::string uuid,std::string token,std::st
 	std::string reqConnHeader = reqConnHead + reqConnCseq + reqConnLen + strreqconnlen + reqConnend;
 	std::string reqConndata = reqConnHeader + strreqCon;
 	int reqConndatalen = reqConndata.length();
-	bufferevent_write(pPeer->WorBuf->bufev,reqConndata.c_str(),reqConndatalen);	
+	bufferevent_write(pPeer->pConn->bufev,reqConndata.c_str(),reqConndatalen);	
 	sl.clear();
 	return 0;
 }

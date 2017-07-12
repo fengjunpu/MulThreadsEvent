@@ -2,19 +2,20 @@
 #include "../include/subsvr_manage.h"
 #include <cstring>
 #include<unistd.h>
-
+#include <signal.h>
 
 static const char * optstr = "hi:s:a:p:u:c:v:t:e:r:";
 static const char * help   =	"Options: \n"	"  -h         : This help text\n"	
 								"  -i 	<str> : Local Http Server IP \n"	
 								"  -s 	<int> : Local Http Server Port \n"	
 								"  -a 	<str> : Status Redis IP\n"
-								"  -p 	<int> : Status Redis Port"
+								"  -p 	<int> : Status Redis Port\n"
+								"  -u 	<str> : Data center ip"
 								"  -v 	<int> : Peer Keepalive Interval\n"	
 								"  -t 	<int> : Peer Keepalive Timeout\n"	
 								"  -e	<int> : Redis ExpireTime\n"
 								"  -r	<int> : Redis Relink Time\n"
-								"  -c	<int> : Check Stream Server Interval\n"; 
+								"  -c	<int> : Reduis Auth Port\n"; 
 
 static int parse_args(int argc, char ** argv) 
 {	
@@ -68,18 +69,21 @@ static int parse_args(int argc, char ** argv)
 int main(int argc,char **argv)
 {
 	//½âÎö²ÎÊý 
+	signal(SIGPIPE,SIG_IGN);
 	parse_args(argc,argv);
 	int Ret = get_param(REDIS_CENTER_IP);
 	assert(Ret == 0);
-	if((strlen(REDIS_CENTER_IP)==-1) || (strlen(RPS_SERVER_IP)==-1))
+	if((strlen(REDIS_CENTER_IP)==0) || (strlen(RPS_SERVER_IP)==0))
 	{
 		return -1;
 	}
-	Server * Control_Button = Server::getInstance();
-	Control_Button->Server_Start(10,100000);
-	start_subsvr_manage(RPS_SERVER_IP,REDIS_CENTER_IP);
-	std::string buf;
-	std::cin>>buf;
+ 	Ret = start_subsvr_manage(RPS_SERVER_IP,REDIS_CENTER_IP);
+	assert(Ret == 0);
+	
+	std::cout<<"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!begin!!!!!!!!!!!!!!!!!!!!!!!!!!!\n";
+	Server * Control_Button = Server::getInstance();	
+	Control_Button->Server_Start();
 	Control_Button->Server_Stop();
+	std::cout<<"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!end!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n";
 	return 0;
 }

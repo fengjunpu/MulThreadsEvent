@@ -17,45 +17,41 @@ void peer_timeout_cb(evutil_socket_t fd, short ev, void *ctx)
 {
 	if(NULL == ctx)
 		return;
-	Buffev *buffev = (Buffev *)ctx;
-	if(buffev->timer != NULL)
-	{
-		event_free(buffev->timer);
-		buffev->timer = NULL;
-	}
+	Conn *m_conn = (Conn *)ctx;
+	if(m_conn->timer != NULL)
+		event_free(m_conn->timer);
+	if(m_conn->bufev != NULL)
+		bufferevent_free(m_conn->bufev);
 	
-	bufferevent_disable(buffev->bufev,EV_READ | EV_WRITE);
-	evutil_socket_t buffd = bufferevent_getfd(buffev->bufev);
-	evutil_closesocket(buffd);
-
-	if(buffev->pPeer != NULL)
+	if(m_conn->pPeer != NULL)
 	{
-		std::string uuid = buffev->pPeer->Uuid;
+		std::cout<<"ERROR:Peer TimeOut index = "<<m_conn->pPeer->Uuid<<std::endl;
+		std::string uuid = m_conn->pPeer->Uuid;
 		del_node_from_map(uuid);
-		if((buffev->owner->redis_conn_flag == 1) && (uuid.length()))
-		{
-			redisAsyncCommand(buffev->owner->r_status,redis_op_status,buffev->owner,"DEL %s",uuid.c_str());
-		}
-		delete buffev->pPeer;
-		buffev->pPeer = NULL;
+		if((m_conn->hredis->redis_conn_flag == 1) && (uuid.length()))
+			redisAsyncCommand(m_conn->hredis->r_status,redis_op_status,m_conn->hredis,"DEL %s",uuid.c_str());
+		free(m_conn->pPeer);
 	}
-	
-	buffev->owner->put_buffev(buffev);
+	free(m_conn);
 }
 
 void worker_read_cb(struct bufferevent *bev, void *ctx)
 {
 	if(NULL == ctx)
 		return;
-	int n,len;
-	Buffev *buffev = (Buffev *)ctx;
-	char content[MAX_LINE + 1] = {0,};
-	while (n = bufferevent_read(bev, content, MAX_LINE),n > 0)
-	{
-		content[n] = '\0';
-	}
-	std::cout<<"this is worker read cb count :"<<content<<std::endl;
-	parse_http_data(content,buffev);
+	Conn *conn = (Conn *)ctx;
+	struct evbuffer *pinbuf = bufferevent_get_input(bev);
+	assert(pinbuf != NULL);
+	int len = evbuffer_get_length(pinbuf);
+	assert(len >= 0);
+	if(len == 0)
+		return ;
+	
+	char *pmsg = (char *)evbuffer_pullup(pinbuf, -1);
+    assert(pmsg != NULL);
+	std::string strmsg(pmsg, len);
+	parse_http_data((char *)strmsg.c_str(),conn);
+	
 	return;
 }
 
@@ -63,29 +59,25 @@ void worker_error_cb(struct bufferevent *bev, short what, void *ctx)
 {
 	if(NULL == ctx)
 		return;
-	Buffev * worker_buffer = (Buffev *)ctx;
-	bufferevent_disable(bev,EV_READ | EV_WRITE);
-	if(worker_buffer->timer != NULL)
+	Conn * worker_conn = (Conn *)ctx;
+	if(worker_conn->timer != NULL)
+		event_free(worker_conn->timer);
+
+	if(worker_conn->bufev != NULL)
+		bufferevent_free(worker_conn->bufev);
+	
+	if(worker_conn->pPeer != NULL)
 	{
-		event_free(worker_buffer->timer);
-		worker_buffer->timer = NULL;
+		std::cout<<"Error: connection is failed uuid: "<<worker_conn->pPeer->Uuid<<std::endl;
+		del_node_from_map(worker_conn->pPeer->Uuid);
+		std::string uuid = worker_conn->pPeer->Uuid;
+		if((worker_conn->hredis->redis_conn_flag == 1) && (uuid.length()))
+			redisAsyncCommand(worker_conn->hredis->r_status,redis_op_status,worker_conn->hredis,"DEL %s",uuid.c_str());
+		free(worker_conn->pPeer);
+		
 	}
 	
-	if(worker_buffer->pPeer != NULL)
-	{
-		del_node_from_map(worker_buffer->pPeer->Uuid);
-		std::string uuid = worker_buffer->pPeer->Uuid;
-		if((worker_buffer->owner->redis_conn_flag == 1) && (uuid.length()))
-		{
-			redisAsyncCommand(worker_buffer->owner->r_status,redis_op_status,worker_buffer->owner,"DEL %s",uuid.c_str());
-		}
-		delete worker_buffer->pPeer;
-		evutil_socket_t fd = bufferevent_getfd(bev);
-		evutil_closesocket(fd);
-		worker_buffer->pPeer = NULL;
-	}
-	worker_buffer->owner->put_buffev(worker_buffer);
-	std::cout<<"index = "<<worker_buffer->index<<" free number = "<<worker_buffer->owner->freenum<<std::endl;
+	free(worker_conn);
 	return;
 }
 
@@ -94,22 +86,22 @@ void redis_conn_cb(const struct redisAsyncContext* c, int status)
 {
 	if((NULL == c) || (NULL == c->data))
 		return;
-	Worker *worker_ev = (Worker *)c->data;
+	SyRedis *redis_ev = (SyRedis *)c->data;
 	if(status != REDIS_OK)
 	{
-		worker_ev->redis_conn_flag = 0;
-		if(event_initialized(&worker_ev->ev))
-			event_del(&worker_ev->ev);
-		event_assign(&worker_ev->ev,worker_ev->w_base,-1,0,redis_reconn_cb,worker_ev);
-		update_timer_event(&worker_ev->ev,REDIS_RECONN_INTERNAL);
+		redis_ev->redis_conn_flag = 0;
+		if(event_initialized(&redis_ev->ev))
+			event_del(&redis_ev->ev);
+		event_assign(&redis_ev->ev,redis_ev->w_base,-1,0,redis_reconn_cb,redis_ev);
+		update_timer_event(&redis_ev->ev,REDIS_RECONN_INTERNAL);
 	}
 	else
 	{
-		worker_ev->redis_conn_flag = 1;
-		if(event_initialized(&worker_ev->ev))
-			event_del(&worker_ev->ev);
-		event_assign(&worker_ev->ev,worker_ev->w_base,-1,0,redis_check_health_cb,worker_ev);
-		update_timer_event(&worker_ev->ev,REDIS_CHECKHEALTH_INTERNAL);
+		redis_ev->redis_conn_flag = 1;
+		if(event_initialized(&redis_ev->ev))
+			event_del(&redis_ev->ev);
+		event_assign(&redis_ev->ev,redis_ev->w_base,-1,0,redis_check_health_cb,redis_ev);
+		update_timer_event(&redis_ev->ev,REDIS_CHECKHEALTH_INTERNAL);
 	}
 }
 
@@ -117,12 +109,12 @@ void redis_disconn_cb(const struct redisAsyncContext* c, int status)
 {
 	if((NULL == c) || (NULL == c->data))
 		return;
-	Worker *worker_ev = (Worker *)c->data;
-	worker_ev->redis_conn_flag = 0;
-	if(event_initialized(&worker_ev->ev))
-		event_del(&worker_ev->ev);
-	event_assign(&worker_ev->ev,worker_ev->w_base,-1,0,redis_reconn_cb,worker_ev);
-	update_timer_event(&worker_ev->ev,REDIS_RECONN_INTERNAL);
+	SyRedis *redis_ev = (SyRedis *)c->data;
+	redis_ev->redis_conn_flag = 0;
+	if(event_initialized(&redis_ev->ev))
+		event_del(&redis_ev->ev);
+	event_assign(&redis_ev->ev,redis_ev->w_base,-1,0,redis_reconn_cb,redis_ev);
+	update_timer_event(&redis_ev->ev,REDIS_RECONN_INTERNAL);
 }
 
 /*ÖØÁ¬redis*/
@@ -130,12 +122,12 @@ void redis_reconn_cb(evutil_socket_t fd, short event, void *ctx)
 {
 	if(NULL == ctx)
 		return;
-	Worker *worker_ev = (Worker *)ctx;
-	worker_ev->r_status  = redisAsyncConnect(REDIS_CENTER_IP,REDIS_STATUS_PORT);
-	worker_ev->r_status->data = worker_ev;
-	redisLibeventAttach(worker_ev->r_status,worker_ev->w_base);
-	redisAsyncSetConnectCallback(worker_ev->r_status,redis_conn_cb);
-	redisAsyncSetDisconnectCallback(worker_ev->r_status,redis_disconn_cb);
+	SyRedis *redis_ev = (SyRedis *)ctx;
+	redis_ev->r_status  = redisAsyncConnect(REDIS_CENTER_IP,REDIS_STATUS_PORT);
+	redis_ev->r_status->data = redis_ev;
+	redisLibeventAttach(redis_ev->r_status,redis_ev->w_base);
+	redisAsyncSetConnectCallback(redis_ev->r_status,redis_conn_cb);
+	redisAsyncSetDisconnectCallback(redis_ev->r_status,redis_disconn_cb);
 	return;
 }
 
@@ -144,10 +136,10 @@ void redis_check_health_cb(evutil_socket_t fd, short event, void *ctx)
 {
 	if(NULL == ctx)
 		return;
-	Worker * worker_ev = (Worker *)ctx;
-	if(worker_ev->redis_conn_flag == 1)
+	SyRedis * redis_ev = (SyRedis *)ctx;
+	if(redis_ev->redis_conn_flag == 1)
 	{
-		redisAsyncCommand(worker_ev->r_status, redis_op_status,worker_ev, "SET Test Test");
+		redisAsyncCommand(redis_ev->r_status,redis_op_status,redis_ev, "SET Test Test");
 	}
 	return ;
 }
@@ -156,12 +148,12 @@ void redis_op_status(redisAsyncContext *c, void * redis_reply, void * arg)
 {
 	if(arg == NULL)
 		return;
-	Worker * worker_ev = (Worker *)arg;	
+	SyRedis * redis_ev = (SyRedis *)arg;	
 	redisReply * reply   = (redisReply *)redis_reply;
 	if(NULL == reply)
 	{
 		redisAsyncDisconnect(c);
 		return;
 	}
-	update_timer_event(&worker_ev->ev,REDIS_CHECKHEALTH_INTERNAL);
+	update_timer_event(&redis_ev->ev,REDIS_CHECKHEALTH_INTERNAL);
 }
