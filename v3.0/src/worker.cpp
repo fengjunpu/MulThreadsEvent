@@ -14,6 +14,89 @@
 #define CLI_CONNRSP "MSG_CLI_NEED_CON_RSP"
 #define DEV_CONNREQ "MSG_DEV_START_CON"
 
+
+template<typename Out>
+void split(const std::string &s, char delim, Out result) {
+    std::stringstream ss;
+    ss.str(s);
+    std::string item;
+    while (std::getline(ss, item, delim)) {
+        *(result++) = item;
+    }
+}
+
+std::vector<std::string> split(const std::string &s, char delim) {
+    std::vector<std::string> elems;
+    split(s, delim, std::back_inserter(elems));
+    return elems;
+}
+
+int parse_http_msg(char *pbuf, int len, http_msg_t *phttp_msg)
+{
+    char *pbegin = strstr(pbuf, "POST");
+    if(pbegin == NULL)
+        pbegin = strstr(pbuf, "PUT");
+    if(pbegin == NULL)
+        pbegin = strstr(pbuf, "GET");
+    if(pbegin == NULL)
+        pbegin = strstr(pbuf, "HTTP");
+    if(pbegin == NULL)
+        return 0;
+
+    int prefix_len = pbegin - pbuf;
+    char *p = strstr(pbegin, "\r\n\r\n");
+    if(p == NULL)
+        return 0;
+    char *pbody = p+4;
+    int headlen = pbody-pbegin;
+
+    vect_str_t head_line_vect;
+    char *ptmp = strstr(pbegin, "\r\n");
+    std::string strtmp(pbegin, ptmp-pbegin);
+    head_line_vect = split(strtmp, ' ');
+    if(head_line_vect.size() < 2)
+        return -1;
+
+    if(head_line_vect[0] == "HTTP/1.1")
+    {
+        phttp_msg->type = "response";
+        phttp_msg->status_code = atoi(head_line_vect[1].c_str());
+    }
+    else
+    {
+        phttp_msg->type = "request";
+        phttp_msg->url = head_line_vect[1];
+    }
+
+    std::string strheader(pbegin, headlen);
+    std::istringstream ssheader(strheader);
+    std::string oneline;
+    std::string::size_type index;
+
+    while (std::getline(ssheader, oneline) && oneline != "\r")
+    {
+        index = oneline.find(':', 0);
+        if(index != std::string::npos) {
+            std::string key = oneline.substr(0, index);
+            std::string value = oneline.substr(index + 1);
+            std::transform(key.begin(), key.end(), key.begin(), ::tolower);
+            phttp_msg->headers[key] = value;
+        }
+    }
+
+    if(phttp_msg->headers.find("content-length") == phttp_msg->headers.end())
+        return -1;
+
+    int bodylen = atoi(phttp_msg->headers["content-length"].c_str());
+    if(bodylen + headlen > len-prefix_len)   
+        return 0;
+
+    phttp_msg->body = pbody;
+    phttp_msg->bodylen = bodylen;
+    phttp_msg->msglen = headlen + bodylen + prefix_len;
+    return 1;
+}
+
 static std::string getString(const Json::Value & table)
 {
     std::string temp;
@@ -63,7 +146,7 @@ bool insert_node_to_map(std::string uuid,Node *peer)
 {
 	if(NULL == peer)
 		return false;
-	std::cout<<"insert new peer uuid :"<<uuid<<std::endl;
+	//std::cout<<"insert new peer uuid :"<<uuid<<std::endl;
 	pthread_mutex_lock(&Server::getInstance()->s_lock_node_map);
 	Server::getInstance()->dev_node_container.insert(Node_Map::value_type(uuid, peer));
 	pthread_mutex_unlock(&Server::getInstance()->s_lock_node_map);
@@ -79,20 +162,18 @@ bool del_node_from_map(std::string uuid)
 }
 
 /*解析http数据数据*/
-int parse_http_data(char *data,Conn *buffev)
+int handle_client_rquest(http_msg_t *msg,Conn *buffev)
 {
-	if(NULL == data)
+	if(NULL == msg)
 		return -1;
-	char *body = strstr(data,"\r\n\r\n");
-	if(NULL == body)
-		return -1;
+	
 	Json::Reader    reader;
     Json::Value     requestValue;
-	if(reader.parse(body, requestValue) == false)
+	if(reader.parse(msg->body, requestValue) == false)
    	{
 		return error_rps_data(buffev->bufev,HTTP_RES_400);
    	}
-	
+
 	if((requestValue.isObject())&&(requestValue.isMember("AgentProtocol"))&& \
 		(requestValue["AgentProtocol"].isMember("Header"))&& \
 		(requestValue["AgentProtocol"]["Header"].isMember("MessageType")))
@@ -118,25 +199,25 @@ int parse_http_data(char *data,Conn *buffev)
 			bool Ret = false;
 			do
 			{
-				Ret = requestValue["AgentProtocol"]["Body"].isMember("ClientToken");
-				if(!Ret) break;
-				Ret = requestValue["AgentProtocol"]["Body"].isMember("ServiceType");
-				if(!Ret) break;
-				Ret = requestValue["AgentProtocol"]["Body"].isMember("SessionId");
-				if(!Ret) break;
-				Ret = requestValue["AgentProtocol"]["Body"].isMember("DestPort");
-				if(!Ret) break;
+				if( !requestValue["AgentProtocol"]["Body"].isMember("ClientToken") || \
+					!requestValue["AgentProtocol"]["Body"].isMember("ServiceType") || \
+					!requestValue["AgentProtocol"]["Body"].isMember("SessionId") ||  \
+					!requestValue["AgentProtocol"]["Body"].isMember("DestPort") )
+				{
+					break;
+				}
 				std::string ClientToken = requestValue["AgentProtocol"]["Body"]["ClientToken"].asCString();
 				std::string ServerType = requestValue["AgentProtocol"]["Body"]["ServiceType"].asString();
 				std::string SessionId = requestValue["AgentProtocol"]["Body"]["SessionId"].asCString();
 				std::string DestPort = requestValue["AgentProtocol"]["Body"]["DestPort"].asCString();
-				std::cout<<"client uuid "<<Uuid<<std::endl;
+				//std::cout<<"client uuid "<<Uuid<<std::endl;
 				return handle_conn_requst(buffev,Uuid,ClientToken,ServerType,SessionId,DestPort);
 			}while(0);
 		}
 	}
-	return error_rps_data(buffev->bufev,HTTP_RES_400);
+	
 	/*Bad Request ... ...*/
+	return error_rps_data(buffev->bufev,HTTP_RES_400);
 }
 
 
@@ -153,23 +234,24 @@ int handle_dev_register(Conn *conn,std::string uuid,std::string are,std::string 
 			assert(pPeer);
 			flag = 1;
 		}
-		else
+		else if(pPeer->pConn != NULL)	//free old connection
 		{
-			/*加锁*/
-			if(pPeer->pConn != NULL)
+			if(pPeer->pConn->timer != NULL)
 			{
-				if(pPeer->pConn->timer != NULL)
+				
+				if(event_initialized(pPeer->pConn->timer))
 				{
-					event_free(pPeer->pConn->timer);
-					pPeer->pConn->timer = NULL;
+					event_del(pPeer->pConn->timer);
 				}
-				if(pPeer->pConn->bufev != NULL)
-				{
-					bufferevent_setcb(pPeer->pConn->bufev, NULL, NULL, NULL, NULL);
-					bufferevent_free(pPeer->pConn->bufev);
-				}
-				free(pPeer->pConn);
-			}	
+				event_free(pPeer->pConn->timer);
+				pPeer->pConn->timer = NULL;
+			}
+			if(pPeer->pConn->bufev != NULL)
+			{
+				bufferevent_setcb(pPeer->pConn->bufev, NULL, NULL, NULL, NULL);
+				bufferevent_free(pPeer->pConn->bufev);
+			}
+			free(pPeer->pConn);	
 		}
 		
 		pPeer->FlushRedis = 0;
@@ -212,7 +294,7 @@ int handle_dev_register(Conn *conn,std::string uuid,std::string are,std::string 
 	
 	std::stringstream ss;
     ss<<bodyLen;
-    std::string strLength = ss.str();
+	std::string strLength = ss.str();
 	std::string httphead = "HTTP/1.1 200 OK\r\n";
 	std::string contenthead = "Content-Type: text/plain\r\n";
 	std::string contentlength = "Content-Length: ";
@@ -238,6 +320,7 @@ int handle_conn_requst(Conn *conn,std::string uuid,std::string token,std::string
 	{
 		return error_rps_data(conn->bufev,HTTP_RES_NOTFOUND);
 	}
+	
 	char match_ip[32] = {0,};
 	int ret = get_matched_server(REDIS_CENTER_IP,(char *)servertype.c_str(),(char *)pPeer->Oemid,(char *)pPeer->Area,match_ip,NULL);
 	if(ret < 0)

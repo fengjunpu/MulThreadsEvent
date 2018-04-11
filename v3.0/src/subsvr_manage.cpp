@@ -161,11 +161,11 @@ static void* pull_serverinfo_thread(void* arg)
 		ret = refresh_server_info(rediscenter_iplist);
 		if(ret < 0)
 		{
-			sleep(90);
+			sleep(5);
 		}
 		else
 		{
-			sleep(180);	
+			sleep(10);	
 		}	
 	}
 	return NULL;

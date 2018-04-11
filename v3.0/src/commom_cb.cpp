@@ -20,8 +20,13 @@ void peer_timeout_cb(evutil_socket_t fd, short ev, void *ctx)
 	Conn *m_conn = (Conn *)ctx;
 	if(m_conn->timer != NULL)
 	{
+		if(event_initialized(m_conn->timer)) 
+		{
+			event_del(m_conn->timer);
+		}
+		
 		event_free(m_conn->timer);
-		m_conn->timer;
+		m_conn->timer = NULL;
 	}
 	
 	if(m_conn->bufev != NULL)
@@ -49,19 +54,31 @@ void worker_read_cb(struct bufferevent *bev, void *ctx)
 {
 	if(NULL == ctx)
 		return;
+	http_msg_t http_msg;
 	Conn *conn = (Conn *)ctx;
 	struct evbuffer *pinbuf = bufferevent_get_input(bev);
 	assert(pinbuf != NULL);
-	int len = evbuffer_get_length(pinbuf);
-	assert(len >= 0);
-	if(len == 0)
-		return ;
 	
 	char *pmsg = (char *)evbuffer_pullup(pinbuf, -1);
     assert(pmsg != NULL);
-	std::string strmsg(pmsg, len);
-	evbuffer_drain(pinbuf,len);
-	parse_http_data((char *)strmsg.c_str(),conn);
+	
+	int len = evbuffer_get_contiguous_space(pinbuf);
+	if(len == 0)
+		return ;
+	
+	std::string strmsg(pmsg, len);	
+	int ret = parse_http_msg((char *)strmsg.c_str(),len,&http_msg);
+	if(ret <= 0)
+	{
+		if(ret < 0) 
+		{
+			error_rps_data(bev,HTTP_RES_400);
+		}
+		return ;
+	}
+	
+	handle_client_rquest(&http_msg,conn);
+	evbuffer_drain(pinbuf,http_msg.msglen);
 	
 	return;
 }
@@ -74,6 +91,11 @@ void worker_error_cb(struct bufferevent *bev, short what, void *ctx)
 	Conn *worker_conn = (Conn *)ctx;
 	if(worker_conn->timer != NULL)
 	{
+		if(event_initialized(worker_conn->timer)) 
+		{
+			event_del(worker_conn->timer);
+		}
+		
 		event_free(worker_conn->timer);
 		worker_conn->timer = NULL;
 	}
