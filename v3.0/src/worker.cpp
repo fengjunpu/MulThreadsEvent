@@ -2,6 +2,8 @@
 #include <cstdlib>
 #include <sstream>
 #include <string>
+#include <algorithm>
+#include <fstream>
 
 #include "../include/worker.h"
 #include "../include/server.h"
@@ -14,6 +16,12 @@
 #define CLI_CONNRSP "MSG_CLI_NEED_CON_RSP"
 #define DEV_CONNREQ "MSG_DEV_START_CON"
 
+#define CLI_SETREDIS_REQ "MSG_SET_RPS_REDIS_ADDR_REQ"
+#define CLI_SETREDIS_RSP "MSG_SET_RPS_REDIS_ADDR_RSP"
+#define CLI_GETREDIS_REQ "MSG_GET_RPS_REDIS_ADDR_REQ"
+#define CLI_GETREDIS_RSP "MSG_GET_RPS_REDIS_ADDR_RSP"
+
+extern int g_redis_change_flag_index;
 
 template<typename Out>
 void split(const std::string &s, char delim, Out result) {
@@ -111,7 +119,7 @@ int error_rps_data(struct bufferevent *bufev,int code)
 		return -1;
 	char rps[128] = {0};
 	int ret = snprintf(rps,128,"HTTP/1.1 %d %s\r\n",code,status_code_to_str(code));
-	sprintf(rps+ret,"%s","Content-Type: text/plain\r\n\r\n");
+	sprintf(rps+ret,"%s","Content-Length: 0\r\nContent-Type: text/plain\r\n\r\n");
 	int len = strlen(rps) + 1;
 	bufferevent_write(bufev,rps,len);
 	return 0;
@@ -166,7 +174,6 @@ int handle_client_rquest(http_msg_t *msg,Conn *buffev)
 {
 	if(NULL == msg)
 		return -1;
-	
 	Json::Reader    reader;
     Json::Value     requestValue;
 	if(reader.parse(msg->body, requestValue) == false)
@@ -179,7 +186,11 @@ int handle_client_rquest(http_msg_t *msg,Conn *buffev)
 		(requestValue["AgentProtocol"]["Header"].isMember("MessageType")))
 	{
 		std::string MessageType = requestValue["AgentProtocol"]["Header"]["MessageType"].asCString();
-		std::string Uuid = requestValue["AgentProtocol"]["Body"]["SerialNumber"].asCString();
+		std::string Uuid;
+		if(requestValue["AgentProtocol"]["Body"].isMember("SerialNumber"))
+		{	
+			Uuid = requestValue["AgentProtocol"]["Body"]["SerialNumber"].asCString();
+		}
 		if(DEV_REGIREQ == MessageType)
 		{
 			bool Ret = false;
@@ -210,9 +221,17 @@ int handle_client_rquest(http_msg_t *msg,Conn *buffev)
 				std::string ServerType = requestValue["AgentProtocol"]["Body"]["ServiceType"].asString();
 				std::string SessionId = requestValue["AgentProtocol"]["Body"]["SessionId"].asCString();
 				std::string DestPort = requestValue["AgentProtocol"]["Body"]["DestPort"].asCString();
-				//std::cout<<"client uuid "<<Uuid<<std::endl;
+				log_infox("client request connect uuid:%s",Uuid.c_str());
 				return handle_conn_requst(buffev,Uuid,ClientToken,ServerType,SessionId,DestPort);
 			}while(0);
+		}
+		else if(CLI_SETREDIS_REQ == MessageType)
+		{
+			return handle_set_redis(requestValue,buffev->bufev);
+		}
+		else if(CLI_GETREDIS_REQ == MessageType)
+		{
+			return handle_get_redis(requestValue,buffev->bufev);
 		}
 	}
 	
@@ -262,7 +281,7 @@ int handle_dev_register(Conn *conn,std::string uuid,std::string are,std::string 
 		memcpy(pPeer->Uuid,uuid.c_str(),sizeof(pPeer->Uuid));
 		pPeer->pConn->pPeer = pPeer;
 		
-		if(1 == flag)
+		if(1 == flag) 
 			insert_node_to_map(uuid,pPeer);
 	}
 	
@@ -271,12 +290,14 @@ int handle_dev_register(Conn *conn,std::string uuid,std::string are,std::string 
 	/*更新数据库*/
 	struct timeval nowtv;
 	evutil_gettimeofday(&nowtv, NULL);
-	if(conn->hredis->redis_conn_flag == 1 &&(nowtv.tv_sec - pPeer->FlushRedis > 3*HEATER_BEAT_INTERNAL - 5))
+	if(conn->hredis->redis_conn_flag == 1 &&((nowtv.tv_sec - pPeer->FlushRedis > 3*HEATER_BEAT_INTERNAL - 5) \
+											|| (pPeer->sync_redis_index != g_redis_change_flag_index)))
 	{
 		redisAsyncCommand(conn->hredis->r_status,redis_op_status,conn->hredis, "HMSET %s ServerIP %s ServerPort %d DevicePort %d", \
                                         uuid.c_str(),RPS_SERVER_IP,RPS_SERVER_PORT,pPeer->DevPort);
         redisAsyncCommand(conn->hredis->r_status,redis_op_status,conn->hredis,"EXPIRE %s %d",uuid.c_str(),REDIS_EXPIRE_TIME);
 		pPeer->FlushRedis = nowtv.tv_sec;
+		pPeer->sync_redis_index = g_redis_change_flag_index;
 	}
 
 	/*响应设备*/
@@ -326,7 +347,6 @@ int handle_conn_requst(Conn *conn,std::string uuid,std::string token,std::string
 	if(ret < 0)
 	{		
 		return error_rps_data(conn->bufev,HTTP_RES_SERVERR);
-		return -1;	
 	} 
 	
 	std::string strport = "6611";
@@ -380,6 +400,143 @@ int handle_conn_requst(Conn *conn,std::string uuid,std::string token,std::string
 	std::string reqConndata = reqConnHeader + strreqCon;
 	int reqConndatalen = reqConndata.length();
 	bufferevent_write(pPeer->pConn->bufev,reqConndata.c_str(),reqConndatalen);	
+	sl.clear();
+	log_warnx("uuid: %s ,agent server ip: %s, session id: %s",pPeer->Uuid,match_ip,sesionid.c_str());
+	return 0;
+}
+
+/*处理设备连接请求*/
+int handle_set_redis(Json::Value &requestValue,struct bufferevent *bev)
+{
+	int ret = 0;
+	int status_sync_flag = 0;
+	int center_sync_flag = 0;
+	Json::Value jrspbody;
+	
+	std::string new_status = REDIS_STATUS_IP;
+	std::string new_center = REDIS_CENTER_IP;
+	std::string new_center_list = REDIS_CENTER_LIST_IP;
+
+	if(requestValue["AgentProtocol"]["Body"].isMember("StatusIp"))
+	{
+		if(new_status != requestValue["AgentProtocol"]["Body"]["StatusIp"].asString())
+		{
+			status_sync_flag = 1;	
+			new_status = requestValue["AgentProtocol"]["Body"]["StatusIp"].asString();
+		}
+	}
+	
+	if(requestValue["AgentProtocol"]["Body"].isMember("CenterIp"))
+	{
+		if(new_center != requestValue["AgentProtocol"]["Body"]["CenterIp"].asString())
+		{
+			new_center = requestValue["AgentProtocol"]["Body"]["CenterIp"].asString();
+			center_sync_flag = 1;
+		}
+	}
+	
+	if(requestValue["AgentProtocol"]["Body"].isMember("CenterIpList"))
+	{
+		if(new_center_list != requestValue["AgentProtocol"]["Body"]["CenterIpList"].asString())
+		{
+			new_center_list = requestValue["AgentProtocol"]["Body"]["CenterIpList"].asString();
+			center_sync_flag = 1;
+		}
+	}
+
+	if(status_sync_flag == 1 || center_sync_flag == 1)
+	{
+		std::fstream fs;
+		fs.open("./Status_RedisIp.txt",std::fstream::out); 
+		if(fs)
+		{	
+			if(new_status.length() > 0)
+				fs<<"status:"<<new_status<<std::endl;
+			if(new_center.length() > 0)
+				fs<<"center:"<<new_center<<std::endl;
+			if(new_center_list.length() > 0)
+				fs<<"centerlist:"<<new_center_list<<std::endl;
+			fs.close();
+		}
+		else
+		{
+			ret = -1;
+		}
+	}
+
+	if(status_sync_flag == 1 && ret == 0)
+	{
+		g_redis_change_flag_index++;
+		strcpy(REDIS_STATUS_IP,new_status.c_str());
+		redisAsyncDisconnect(Server::getInstance()->handle_redis->r_status);
+	}
+	
+	if(center_sync_flag == 1 && ret == 0)
+	{
+		strcpy(REDIS_CENTER_IP,new_center.c_str());
+		strcpy(REDIS_CENTER_LIST_IP,new_center_list.c_str());
+	}
+
+	jrspbody["AgentProtocol"]["Header"]["Version"] = "1.0";
+    jrspbody["AgentProtocol"]["Header"]["CSeq"] = "1";
+    jrspbody["AgentProtocol"]["Header"]["MessageType"] = CLI_SETREDIS_RSP;
+	if(ret == 0)
+	{
+	    jrspbody["AgentProtocol"]["Header"]["ErrorNum"] = "200";
+	    jrspbody["AgentProtocol"]["Header"]["ErrorString"] = "Success Ok";
+	}
+	else
+	{
+		jrspbody["AgentProtocol"]["Header"]["ErrorNum"] = "500";
+		jrspbody["AgentProtocol"]["Header"]["ErrorString"] = "Internal Error";
+	}
+
+	std::string strrspCon = getString(jrspbody);
+	int rspbodylen = strrspCon.length();
+	
+	std::stringstream sl;
+	sl<<rspbodylen;
+
+	std::string strLength = sl.str();
+	std::string httphead = "HTTP/1.1 200 OK\r\n";
+	std::string contenthead = "Content-Type: text/plain\r\n";
+	std::string contentlength = "Content-Length: ";
+	std::string headend = "\r\n\r\n";
+	std::string strHeader = httphead + contenthead + contentlength + strLength + headend;
+	std::string rspData = strHeader + strrspCon;
+	int rspConndatalen = rspData.length();
+	bufferevent_write(bev,rspData.c_str(),rspConndatalen);
+	sl.clear();
+	return 0;
+}
+
+int handle_get_redis(Json::Value &requestValue,struct bufferevent *bev)
+{
+	Json::Value jrspbody;
+	jrspbody["AgentProtocol"]["Header"]["Version"] = "1.0";
+    jrspbody["AgentProtocol"]["Header"]["CSeq"] = "1";
+    jrspbody["AgentProtocol"]["Header"]["MessageType"] = CLI_GETREDIS_RSP;
+    jrspbody["AgentProtocol"]["Header"]["ErrorNum"] = "200";
+    jrspbody["AgentProtocol"]["Header"]["ErrorString"] = "Success Ok";
+	jrspbody["AgentProtocol"]["Body"]["Status"] = REDIS_STATUS_IP;
+	jrspbody["AgentProtocol"]["Body"]["Center"] = REDIS_CENTER_IP;
+	jrspbody["AgentProtocol"]["Body"]["CenterList"] = REDIS_CENTER_LIST_IP;
+
+	std::string strrspCon = getString(jrspbody);
+	int rspbodylen = strrspCon.length();
+	std::stringstream sl;
+	sl<<rspbodylen;
+
+	std::string strLength = sl.str();
+	std::string httphead = "HTTP/1.1 200 OK\r\n";
+	std::string contenthead = "Content-Type: text/plain\r\n";
+	std::string contentlength = "Content-Length: ";
+	std::string headend = "\r\n\r\n";
+	std::string strHeader = httphead + contenthead + contentlength + strLength + headend;
+	std::string rspData = strHeader + strrspCon;
+
+	int rspConndatalen = rspData.length();
+	bufferevent_write(bev,rspData.c_str(),rspConndatalen);
 	sl.clear();
 	return 0;
 }

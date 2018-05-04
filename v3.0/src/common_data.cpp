@@ -1,8 +1,10 @@
 #include "../include/common_data.h"
 
 char RPS_SERVER_IP[48] = {0,};	
-int RPS_SERVER_PORT = 6610;		
-char REDIS_CENTER_IP[48] = {0,};		
+int  RPS_SERVER_PORT = 6610;		
+char REDIS_CENTER_IP[48] = {0,};
+char REDIS_CENTER_LIST_IP[128] = {0,};
+char REDIS_STATUS_IP[48] = {0,};
 int REDIS_STATUS_PORT = 5126;	
 int REDIS_AUTH_PORT = 5116;		
 int REDIS_RECONN_INTERNAL = 5;

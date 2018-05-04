@@ -4,6 +4,7 @@
 #include <sstream>
 #include <stdio.h>
 #include <unistd.h>
+#include <fstream>
 #include "../include/subsvr_manage.h"
 #include "../include/server.h"
 
@@ -15,14 +16,12 @@ static int dss_server_port = 6610;
 static int pull_thread_startflag = 0;
 //通过环境变量获取配置
 //和环境变量相关
-static char rediscenter_ip[48] = {0,};
-static char rediscenter_iplist[142] = {0,};
 static const char*  serverarea_name = NULL;
 static const char*  vendor_name = NULL;
 static const char*  server_type = NULL;
 time_t begin_time = 0;
 
-static char  dssaccess_server_ip[48] = {0,};
+static char  rpsaccess_server_ip[48] = {0,};
 
 static int  rediscenter_port = 5141;
 
@@ -34,9 +33,9 @@ static void update_serverinfo_to_redis(redisContext* connect)
 		{	
 			std::string temp_type = server_type;
 			std::string temp_map = temp_type + "Map";
-			std::string dssaccess_server_key(temp_type + "_"+std::string(dssaccess_server_ip));
-			std::string dssaccess_server_port;
-			std::string dssaccess_server_status;
+			std::string rpsaccess_server_key(temp_type + "_"+std::string(rpsaccess_server_ip));
+			std::string rpsaccess_server_port;
+			std::string rpsaccess_server_status;
 			char tps_run_time[48];
 			
 			time_t cur_time = ::time(NULL); 
@@ -48,36 +47,36 @@ static void update_serverinfo_to_redis(redisContext* connect)
 			
 			std::stringstream ss;
 			ss << dss_server_port;
-			ss >> dssaccess_server_port;
+			ss >> rpsaccess_server_port;
 			ss.clear();
 			
 			ss << peer_map_size;
-			ss >> dssaccess_server_status;
-			std::cout<<"@@@@@@@@@status active device number "<<dssaccess_server_status<<"@@@@@@@@@\n";
+			ss >> rpsaccess_server_status;
+
 			int ret = redis_hset(connect,temp_map.c_str(),
-							dssaccess_server_ip, VALUE_DSSACCESSSERVER_ONLINE);
+							rpsaccess_server_ip, VALUE_DSSACCESSSERVER_ONLINE);
 			
-			ret += redis_hset(connect,dssaccess_server_key.c_str(),
-							FIELD_DSSACCESSSERVER_IP, dssaccess_server_ip);
-			ret += redis_hset(connect,dssaccess_server_key.c_str(),
-							FIELD_DSSACCESSSERVER_PORT, dssaccess_server_port.c_str());
-			ret += redis_hset(connect,dssaccess_server_key.c_str(),
+			ret += redis_hset(connect,rpsaccess_server_key.c_str(),
+							FIELD_DSSACCESSSERVER_IP, rpsaccess_server_ip);
+			ret += redis_hset(connect,rpsaccess_server_key.c_str(),
+							FIELD_DSSACCESSSERVER_PORT, rpsaccess_server_port.c_str());
+			ret += redis_hset(connect,rpsaccess_server_key.c_str(),
 							FIELD_DSSACCESSSERVER_AREA, serverarea_name);
-			ret += redis_hset(connect,dssaccess_server_key.c_str(),
+			ret += redis_hset(connect,rpsaccess_server_key.c_str(),
 							FIELD_DSSACCESSSERVER_VENDORNAME, vendor_name);
-			ret += redis_hset(connect,dssaccess_server_key.c_str(),
-							FIELD_DSSACCESSSERVER_STATUS,dssaccess_server_status.c_str());
-			ret += redis_hset(connect,dssaccess_server_key.c_str(),
-							FIELD_DSSACCESSSERVER_ACTIVEINDEX, dssaccess_server_status.c_str());
+			ret += redis_hset(connect,rpsaccess_server_key.c_str(),
+							FIELD_DSSACCESSSERVER_STATUS,rpsaccess_server_status.c_str());
+			ret += redis_hset(connect,rpsaccess_server_key.c_str(),
+							FIELD_DSSACCESSSERVER_ACTIVEINDEX, rpsaccess_server_status.c_str());
 							
-			ret += redis_hset(connect,dssaccess_server_key.c_str(),
+			ret += redis_hset(connect,rpsaccess_server_key.c_str(),
 							FIELD_DSSACCESSSERVER_RETOK, "0");
-			ret += redis_hset(connect,dssaccess_server_key.c_str(),
+			ret += redis_hset(connect,rpsaccess_server_key.c_str(),
 							FIELD_DSSACCESSSERVER_RETERROR,"0");
-			ret += redis_hset(connect,dssaccess_server_key.c_str(),
+			ret += redis_hset(connect,rpsaccess_server_key.c_str(),
 							FIELD_DSSACCESSSERVER_RUNSECONDS, tps_run_time);
 			
-			ret += redis_expire(connect,dssaccess_server_key.c_str(), COMMON_MINUTESECONDES);
+			ret += redis_expire(connect,rpsaccess_server_key.c_str(), COMMON_MINUTESECONDES);
 			if (ret < 0) 
 			{
 				redis_discard(connect);
@@ -95,9 +94,15 @@ static int get_env_param()
 	const char* temp_server_ip = getenv("RedisCenter");
 	if(temp_server_ip != NULL)
 	{
-		strcpy(rediscenter_ip,temp_server_ip);
+		strcpy(REDIS_CENTER_IP,temp_server_ip);
 	}
-	
+
+	const char* temp_status_ip = getenv("RedisRpsStatus");
+	if(temp_status_ip != NULL)
+	{
+		strcpy(REDIS_STATUS_IP,temp_status_ip);
+	}
+
 	serverarea_name = getenv("ServerArea");
 	if(NULL == serverarea_name)
 	{
@@ -119,12 +124,13 @@ static int get_env_param()
 	const char *tmp_server_iplist = getenv("RedisList");
 	if(tmp_server_iplist != NULL)
 	{
-		strcpy(rediscenter_iplist,tmp_server_iplist);
+		strcpy(REDIS_CENTER_LIST_IP,tmp_server_iplist);
 	}
 	else
 	{
-		strcpy(rediscenter_iplist,rediscenter_ip);
+		strcpy(REDIS_CENTER_LIST_IP,REDIS_CENTER_IP);
 	}
+	
 	return 0;
 }
 
@@ -132,7 +138,8 @@ static void* redis_update_thread(void* arg)
 {
 	while(!s_redis_exit)
 	{	
-		redisContext* connect = redis_connect(rediscenter_ip, rediscenter_port);
+		log_warnx("============>REDIS_CENTER_IP: %s,rediscenter_port = %d\n",REDIS_CENTER_IP,rediscenter_port);
+		redisContext* connect = redis_connect(REDIS_CENTER_IP,rediscenter_port);
 		if (connect) 
 		{
 			update_serverinfo_to_redis(connect);
@@ -155,17 +162,19 @@ static void* pull_serverinfo_thread(void* arg)
 {
 	//定期拉取服务信息
 	int ret = 0;
+	std::string sertype = "RpsCmd_RpsVoIP_RpsAV";
 	pull_thread_startflag = 1;
 	while(1)
 	{
-		ret = refresh_server_info(rediscenter_iplist);
+		log_warnx("============>REDIS_CENTER_LIST_IP: %s\n",REDIS_CENTER_LIST_IP);
+		ret = refresh_server_info(REDIS_CENTER_LIST_IP,(char *)sertype.c_str());
 		if(ret < 0)
 		{
-			sleep(5);
+			sleep(3);
 		}
 		else
 		{
-			sleep(10);	
+			sleep(5);	
 		}	
 	}
 	return NULL;
@@ -176,7 +185,7 @@ int	start_subsvr_manage(const char *m_server_ip,const char *m_cfgserver_ip)
 	begin_time = ::time(NULL);
 	if(NULL != m_server_ip)
 	{
-		strcpy(dssaccess_server_ip,m_server_ip);
+		strcpy(rpsaccess_server_ip,m_server_ip);
 	}
 	else
 	{
@@ -185,7 +194,7 @@ int	start_subsvr_manage(const char *m_server_ip,const char *m_cfgserver_ip)
 
 	if(NULL != m_cfgserver_ip)
 	{
-		strcpy(rediscenter_ip,m_cfgserver_ip);
+		strcpy(REDIS_CENTER_IP,m_cfgserver_ip);
 	}
 	else
 	{
@@ -207,13 +216,13 @@ int	start_subsvr_manage(const char *m_server_ip,const char *m_cfgserver_ip)
 	int cost = 0;
 	while (((s_redis_update_count <= 0)||(pull_thread_startflag<=0))&&(cost < 20))
 	{
-		printf("wait for redis_update\n");
+		log_warnx("wait for redis_update");
 		sleep(1);	
 		cost++;	
 	}
 	if(cost >= 20)
 	{
-		printf("wait for redis_update timeout\n");
+		log_errx("wait for redis_update timeout");
 		return -1;
 	}
 	
@@ -227,21 +236,51 @@ int	stop_subsvr_manage()
 	return 0;
 }
 
-int get_param(char* cfgredisip)
+int get_param()
 {
 	//获取环境变量
 	get_env_param();
-	if(NULL == cfgredisip)
+	std::ifstream fs("Status_RedisIp.txt");
+	if(fs)
 	{
-		return -1;
+		char line[1024] = {0,};
+		while(fs.getline(line,sizeof(line)))
+		{
+			std::stringstream ss;
+			ss.str(line);
+			std::string item;
+			int i = 0;
+			if(std::getline(ss,item,':'))
+			{
+				if(item == "status")
+				{
+					if(std::getline(ss,item,':'))
+					{
+						if(strlen(item.c_str()) > 0)
+							strcpy(REDIS_STATUS_IP,item.c_str());
+					}
+				}
+				else if(item == "center")
+				{
+					if(std::getline(ss,item,':'))
+					{
+						if(strlen(item.c_str()) > 0)
+							strcpy(REDIS_CENTER_IP,item.c_str());
+					}
+				}
+				else if(item == "centerlist")
+				{	
+					if(std::getline(ss,item,':'))
+					{
+						if(strlen(item.c_str()) > 0)
+							strcpy(REDIS_CENTER_LIST_IP,item.c_str());
+					}
+				}
+			}
+		}
+		fs.close();
 	}
-	if(strlen(rediscenter_ip) > 0)
-	{
-		memcpy(cfgredisip,rediscenter_ip,sizeof(rediscenter_ip));
-	}
-	else
-	{
-		return -1;
-	}
+	log_warnx("=====>REDIS_STATUS_IP:%s,REDIS_CENTER_IP = %s,REDIS_CENTER_LIST_IP = %s",REDIS_STATUS_IP,REDIS_CENTER_IP,REDIS_CENTER_LIST_IP);
+	
 	return 0;
 }

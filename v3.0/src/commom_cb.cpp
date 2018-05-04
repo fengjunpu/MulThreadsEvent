@@ -37,7 +37,7 @@ void peer_timeout_cb(evutil_socket_t fd, short ev, void *ctx)
 	
 	if(m_conn->pPeer != NULL)
 	{
-		LOG(ERROR)<<"ERROR:Peer TimeOut index = "<<m_conn->pPeer->Uuid;
+		log_errx("Peer TimeOut index = %s",m_conn->pPeer->Uuid);
 		std::string uuid = m_conn->pPeer->Uuid;
 		del_node_from_map(uuid);
 		if((m_conn->hredis->redis_conn_flag == 1) && (uuid.length()))
@@ -65,7 +65,7 @@ void worker_read_cb(struct bufferevent *bev, void *ctx)
 	int len = evbuffer_get_contiguous_space(pinbuf);
 	if(len == 0)
 		return ;
-	
+
 	std::string strmsg(pmsg, len);	
 	int ret = parse_http_msg((char *)strmsg.c_str(),len,&http_msg);
 	if(ret <= 0)
@@ -109,7 +109,7 @@ void worker_error_cb(struct bufferevent *bev, short what, void *ctx)
 	
 	if(worker_conn->pPeer != NULL)
 	{
-		LOG(ERROR)<<"Error: connection is failed uuid: "<<worker_conn->pPeer->Uuid;
+		log_errx("connection break uuid:%s",worker_conn->pPeer->Uuid);
 		del_node_from_map(worker_conn->pPeer->Uuid);
 		std::string uuid = worker_conn->pPeer->Uuid;
 		if((worker_conn->hredis->redis_conn_flag == 1) && (uuid.length()))
@@ -128,6 +128,7 @@ void redis_conn_cb(const struct redisAsyncContext* c, int status)
 {
 	if((NULL == c) || (NULL == c->data))
 		return;
+	log_infox("==================>connect redis sucess");
 	SyRedis *redis_ev = (SyRedis *)c->data;
 	if(status != REDIS_OK)
 	{
@@ -165,7 +166,7 @@ void redis_reconn_cb(evutil_socket_t fd, short event, void *ctx)
 	if(NULL == ctx)
 		return;
 	SyRedis *redis_ev = (SyRedis *)ctx;
-	redis_ev->r_status  = redisAsyncConnect(REDIS_CENTER_IP,REDIS_STATUS_PORT);
+	redis_ev->r_status  = redisAsyncConnect(REDIS_STATUS_IP,REDIS_STATUS_PORT);
 	redis_ev->r_status->data = redis_ev;
 	redisLibeventAttach(redis_ev->r_status,redis_ev->w_base);
 	redisAsyncSetConnectCallback(redis_ev->r_status,redis_conn_cb);
@@ -194,7 +195,7 @@ void redis_op_status(redisAsyncContext *c, void * redis_reply, void * arg)
 	redisReply * reply   = (redisReply *)redis_reply;
 	if(NULL == reply)
 	{
-		LOG(ERROR)<<"redis health check connection disconected";
+		log_errx("redis health check connection disconected");
 		redisAsyncDisconnect(c);
 		return;
 	}

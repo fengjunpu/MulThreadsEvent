@@ -25,7 +25,7 @@ void log_infox(const char * format, ...);
 
 void log_warnx(const char * format, ...);
 
-void log_errx(const char * format, ...);
+void log_errx(int errno, const char * format, ...);
 
 
 #endif

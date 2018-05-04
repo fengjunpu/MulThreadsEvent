@@ -1,11 +1,8 @@
 #include "../include/server.h"
 #include "../include/subsvr_manage.h"
 #include <cstring>
-#include<unistd.h>
+#include <unistd.h>
 #include <signal.h>
-#include "easylogging++.h"
-
-INITIALIZE_EASYLOGGINGPP
 
 static const char * optstr = "hi:s:a:p:u:c:v:t:e:r:";
 static const char * help   =	"Options: \n"	"  -h         : This help text\n"	
@@ -69,41 +66,30 @@ static int parse_args(int argc, char ** argv)
 	return 0;
 }
 
-void rolloutHandler(const char* filename, std::size_t size)
-{
-	static unsigned int idx;
-	std::stringstream ss;
-	ss << "mv " << filename << " ./logs-backup/log-backup-" << ++idx;
-	system(ss.str().c_str());
-}
-
 int main(int argc,char **argv)
 {
-	//Log
-	el::Loggers::addFlag(el::LoggingFlag::StrictLogFileSizeCheck);
-	el::Configurations conf("./logger.conf");  
-    el::Loggers::reconfigureAllLoggers(conf); 
-	el::Helpers::installPreRollOutCallback(rolloutHandler);	
-	
+	/*设置日志级别为debug*/
+	SET_LOG_LEVEL(DEBUG_LEVEL_LOG);
+	//Log Path
 	system("mkdir -p ./logs-backup/");
-	system("mkdir -p ./logs/");
 	
 	//解析参数 
 	signal(SIGPIPE,SIG_IGN);
 	parse_args(argc,argv);
-	int Ret = get_param(REDIS_CENTER_IP);
+
+	int Ret = get_param();
 	assert(Ret == 0);
-	if((strlen(REDIS_CENTER_IP)==0) || (strlen(RPS_SERVER_IP)==0))
+	if((strlen(REDIS_CENTER_IP)==0) || (strlen(RPS_SERVER_IP)==0) || (strlen(REDIS_STATUS_IP) == 0))
 	{
 		return -1;
 	}
+
  	Ret = start_subsvr_manage(RPS_SERVER_IP,REDIS_CENTER_IP);
 	assert(Ret == 0);
-	
-	LOG(INFO)<<"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!begin!!!!!!!!!!!!!!!!!!!!!!!!!!!";
+	log_infox("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!begin!!!!!!!!!!!!!!!!!!!!!!!!!!!");
 	Server * Control_Button = Server::getInstance();	
 	Control_Button->Server_Start();
 	Control_Button->Server_Stop();
-	LOG(ERROR)<<"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!end!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n";
+	log_errx("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!end!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
 	return 0;
 }

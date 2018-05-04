@@ -1,23 +1,29 @@
-#include "base_log.h"
+#include "../include/base_log.h"
 
 void _log_print(int level, char *msg)
 {
 	const char *loglevelstr;
 	switch(level) {
-		case _DEBUG_LEVEL_LOG:
-			loglevelstr = "debug";
+		case DEBUG_LEVEL_LOG:
+			loglevelstr = "DEBUG";
 			break;
-		case _INFO_LEVEL_LOG:
-			loglevelstr = "info";
+		case INFO_LEVEL_LOG:
+			loglevelstr = "INFO";
 			break;
-		case _WARN_LEVEL_LOG:
-			loglevelstr = "warn";
+		case WARN_LEVEL_LOG:
+			loglevelstr = "WARN";
 			break;
-		case _ERROR_LEVEL_LOG:
-			loglevelstr = "err";
+		case ERROR_LEVEL_LOG:
+			loglevelstr = "ERROR";
 			break;
 	}
-	(void)fprintf(stderr,"[%s] %s\n",loglevelstr,msg);
+	        
+	struct tm *t = NULL; 
+	time_t timer = time(NULL);
+	t = localtime(&timer);  
+	FILE *fstream = level > WARN_LEVEL_LOG ? stderr : stdout;
+	(void)fprintf(fstream,"[%s | %04d-%02d-%02d %02d:%02d:%02d] | %s\n",loglevelstr,\
+				   t->tm_year+1900,t->tm_mon+1,t->tm_mday,t->tm_hour,t->tm_min,t->tm_sec,msg);
 }
 
 void _log_helper(int level, const char *format, va_list ap)
@@ -34,32 +40,40 @@ void _log_helper(int level, const char *format, va_list ap)
 	
 void log_debugx(const char * format, ...)
 {
+	if(current_log_level > DEBUG_LEVEL_LOG)
+		return ;
 	va_list ap;
 	va_start(ap,format);
-	_log_helper(_DEBUG_LEVEL_LOG,format,ap);
+	_log_helper(DEBUG_LEVEL_LOG,format,ap);
 	va_end(ap);
 }
 
 void log_infox(const char * format, ...)
 {
+	if(current_log_level > INFO_LEVEL_LOG)
+		return ;
 	va_list ap;
 	va_start(ap,format);
-	_log_helper(_INFO_LEVEL_LOG,format,ap);
+	_log_helper(INFO_LEVEL_LOG,format,ap);
 	va_end(ap);
 }
 
 void log_warnx(const char * format, ...)
 {
+	if(current_log_level > WARN_LEVEL_LOG)
+		return ;
 	va_list ap;
 	va_start(ap,format);
-	_log_helper(_WARN_LEVEL_LOG,format,ap);
+	_log_helper(WARN_LEVEL_LOG,format,ap);
 	va_end(ap);
 }
 
-void log_errx(int errno, const char * format, ...)
+void log_errx(const char * format, ...)
 {
+	if(current_log_level > ERROR_LEVEL_LOG)
+		return ;
 	va_list ap;
 	va_start(ap,format);
-	_log_helper(_ERROR_LEVEL_LOG,format,ap);
+	_log_helper(ERROR_LEVEL_LOG,format,ap);
 	va_end(ap);
 }
