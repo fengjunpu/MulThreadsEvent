@@ -16,7 +16,7 @@ int	stop_subsvr_manage();
 #ifdef __cplusplus
 }
 #endif
-int get_param(char* cfgredisip);
+int get_param();
 
 #endif//__SUBSVR_MANAGE_H__
 

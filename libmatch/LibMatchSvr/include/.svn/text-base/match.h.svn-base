@@ -9,7 +9,7 @@ extern "C" {
 // 输入：redis_ip: 各数据中心的redis ip，以冒号分隔，比如: "1.1.1.1:2.2.2.2"
 //建议3分钟调用一次
 // 返回值：>= 0 成功， < 0 失败
-int refresh_server_info(char *redis_ip,char *service);
+int refresh_server_info(char *redis_ip, char *service);
 
 // 根据oem、区域信息、负载情况获取最优服务器
 // 输入

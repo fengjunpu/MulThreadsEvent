@@ -1,0 +1,4 @@
+---- parse_http_msg Matches (3 in 3 files) ----
+Commom_cb.cpp (src):	int ret = parse_http_msg((char *)strmsg.c_str(),len,&http_msg);
+Worker.cpp (src):int parse_http_msg(char *pbuf, int len, http_msg_t *phttp_msg)
+Worker.h (include):int parse_http_msg(char *pbuf, int len, http_msg_t *phttp_msg);

@@ -1,6 +1,7 @@
 #ifndef _H_COMMONDATA_H_
 #define _H_COMMONDATA_H_
-#include "../src/easylogging++.h"
+
+#include "base_log.h"
 
 #define HTTP_RES_200           200
 #define HTTP_RES_CREATED       201
@@ -53,9 +54,11 @@
 #define HTTP_RES_BWEXEED       509
 
 
-extern char RPS_SERVER_IP[48];	//rpsaccess 服务器的ip
-extern int RPS_SERVER_PORT;		//RPS 服务器的PORT
-extern char REDIS_CENTER_IP[48];		//数据中心IP
+extern char REDIS_CENTER_IP[48];			//数据中心IP
+extern char REDIS_CENTER_LIST_IP[128];		//各个数据域的IP列表
+extern char RPS_SERVER_IP[48];	 //rpsaccess 服务器的ip
+extern int RPS_SERVER_PORT;		 //RPS 服务器的PORT		
+extern char REDIS_STATUS_IP[48]; //状态数据库IP
 extern int REDIS_STATUS_PORT;	//状态数据库端口
 extern int REDIS_AUTH_PORT;		//授权数据库端口
 extern int REDIS_RECONN_INTERNAL;	//Redis重连间隔

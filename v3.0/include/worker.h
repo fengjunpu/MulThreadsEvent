@@ -32,6 +32,7 @@ struct _Node{
 	char Area[64];
 	char Oemid[64];
 	char Uuid[32];
+	int sync_redis_index;
 };
 
 struct _SyRedis{
@@ -71,5 +72,7 @@ bool insert_node_to_map(std::string uuid,Node *peer);
 Node *get_node_from_map(std::string &uuid);
 bool update_timer_event(struct event *ev,int time);
 int error_rps_data(struct bufferevent *bufev,int code);
+int handle_set_redis(Json::Value &requestValue,struct bufferevent *bev);
+int handle_get_redis(Json::Value &requestValue,struct bufferevent *bev);
 
 #endif

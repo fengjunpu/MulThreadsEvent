@@ -1,0 +1,53 @@
+K 25
+svn:wc:ra_dav:version-url
+V 103
+/svn/XmCloud3.0/!svn/ver/1627/EasyDarwin_WorkSpace/Event_Space/LibMatchSvr/dep/hiredis/include/adapters
+END
+macosx.h
+K 25
+svn:wc:ra_dav:version-url
+V 112
+/svn/XmCloud3.0/!svn/ver/1627/EasyDarwin_WorkSpace/Event_Space/LibMatchSvr/dep/hiredis/include/adapters/macosx.h
+END
+glib.h
+K 25
+svn:wc:ra_dav:version-url
+V 110
+/svn/XmCloud3.0/!svn/ver/1627/EasyDarwin_WorkSpace/Event_Space/LibMatchSvr/dep/hiredis/include/adapters/glib.h
+END
+ivykis.h
+K 25
+svn:wc:ra_dav:version-url
+V 112
+/svn/XmCloud3.0/!svn/ver/1627/EasyDarwin_WorkSpace/Event_Space/LibMatchSvr/dep/hiredis/include/adapters/ivykis.h
+END
+libev.h
+K 25
+svn:wc:ra_dav:version-url
+V 111
+/svn/XmCloud3.0/!svn/ver/1627/EasyDarwin_WorkSpace/Event_Space/LibMatchSvr/dep/hiredis/include/adapters/libev.h
+END
+libuv.h
+K 25
+svn:wc:ra_dav:version-url
+V 111
+/svn/XmCloud3.0/!svn/ver/1627/EasyDarwin_WorkSpace/Event_Space/LibMatchSvr/dep/hiredis/include/adapters/libuv.h
+END
+qt.h
+K 25
+svn:wc:ra_dav:version-url
+V 108
+/svn/XmCloud3.0/!svn/ver/1627/EasyDarwin_WorkSpace/Event_Space/LibMatchSvr/dep/hiredis/include/adapters/qt.h
+END
+ae.h
+K 25
+svn:wc:ra_dav:version-url
+V 108
+/svn/XmCloud3.0/!svn/ver/1627/EasyDarwin_WorkSpace/Event_Space/LibMatchSvr/dep/hiredis/include/adapters/ae.h
+END
+libevent.h
+K 25
+svn:wc:ra_dav:version-url
+V 114
+/svn/XmCloud3.0/!svn/ver/1627/EasyDarwin_WorkSpace/Event_Space/LibMatchSvr/dep/hiredis/include/adapters/libevent.h
+END
