@@ -220,6 +220,7 @@ int	start_subsvr_manage(const char *m_server_ip,const char *m_cfgserver_ip)
 		sleep(1);	
 		cost++;	
 	}
+	
 	if(cost >= 20)
 	{
 		log_errx("wait for redis_update timeout");
