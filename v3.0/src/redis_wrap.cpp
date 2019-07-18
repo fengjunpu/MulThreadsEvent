@@ -8,7 +8,7 @@
 #include <string.h>
 #include <strings.h>
 
-#include "redis_wrap.h"
+#include "../include/redis_wrap.h"
 
 /*****************************************************************************/
 

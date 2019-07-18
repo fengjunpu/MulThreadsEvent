@@ -1,0 +1,1 @@
+g++ -I ~/Github/MulThreadsEvent/v3.0/include/ -I ~/Github/dss_access_v2/libevent/include/ -I ~/Github/dss_access_v2/hiredis/include/ -L ~/Github/dss_access_v2/libevent/lib/ -L ~/Github/dss_access_v2/json/lib/ *.cpp  ~/Github/dss_access_v2/libevent/lib/libevent_core.a ./libmatch.so -L ~/Github/dss_access_v2/hiredis/lib -ljson -lhiredis -lrt -o agent_access

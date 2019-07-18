@@ -145,14 +145,20 @@ static void* redis_update_thread(void* arg)
 			update_serverinfo_to_redis(connect);
 			redisFree(connect);
 			s_redis_update_count++;
-			sleep(COMMON_MINUTESECONDES/2);	
+			//sleep(COMMON_MINUTESECONDES/2);	
+			sleep(30);
 		}
 		else
 		{
-			if(s_redis_update_count==0)
+			if(s_redis_update_count==0) 
+			{
 				sleep(1);
+			}
 			else
-				sleep(COMMON_MINUTESECONDES);
+			{
+				//sleep(COMMON_MINUTESECONDES);
+				sleep(15);
+			}
 		}
 	}
 	return NULL;
